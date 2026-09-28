@@ -4,7 +4,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="logo.js"></script>
+<script>if (!/\.github\.io$/.test(location.hostname)) document.write('<script src="logo.js"><\/script>');</script>
 <style>
   :root {
     --navy: #1F3A4D; --navy-2: #2C5169; --on-navy: #FFFFFF; --on-navy-muted: #B9CAD6; --navy-line: #5B7A8F;
@@ -44,7 +44,6 @@
   header.top h1 { font: 600 19px/1.25 var(--serif); margin: 0; color: var(--on-navy); text-wrap: balance; }
   header.top .sub { color: var(--on-navy-muted); font-size: 12px; letter-spacing: .02em; }
   header.top .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--on-navy-muted); }
   header.top button { background: transparent; color: var(--on-navy); border-color: var(--navy-line); }
   header.top button:hover:not(:disabled) { background: var(--navy-2); }
   header.top button.primary { background: var(--on-navy); color: var(--navy); border-color: var(--on-navy); }
@@ -132,7 +131,6 @@
     </div>
   </div>
   <div class="actions">
-    <label class="chk" id="repLogoLbl" hidden title="O relatório impresso sai só com os dados do cliente, a menos que você marque esta opção"><input type="checkbox" id="repLogo"> Logo no relatório</label>
     <button class="primary" id="btnPrint" disabled>Imprimir relatório</button>
     <button id="btnXlsx" disabled>⬇ Baixar Excel</button>
     <button id="btnClear" disabled>Limpar tudo</button>
@@ -763,8 +761,6 @@ const REPORT_CSS = `
   .rp .hd h1 { font: 600 17pt/1.2 "IBM Plex Serif", Georgia, serif; color: #072938; margin: 0; }
   .rp .hd .emp { font-weight: 600; font-size: 11.5pt; margin-top: 3px; }
   .rp .hd .meta { color: #5F6E7B; font-size: 9pt; }
-  .rp .hd .lg { width: 46mm; color: #072938; flex: none; }
-  .rp .hd .lg svg { width: 100%; height: auto; display: block; }
   .rp h2 { font: 600 11.5pt/1.3 "IBM Plex Serif", Georgia, serif; color: #072938; margin: 14px 0 6px; border-bottom: 1px solid #DCE2E7; padding-bottom: 3px; }
   .rp .lead { background: #F1F5F9; border-left: 3px solid #183F6B; padding: 8px 12px; margin: 0 0 10px; }
   .rp .lead p { margin: 0 0 4px; } .rp .lead p:last-child { margin: 0; }
@@ -835,12 +831,11 @@ function reportHtml() {
   const icmsS = sum(rows.filter(r => r.es === 'Saída'), 'icms'), stS = sum(rows.filter(r => r.es === 'Saída'), 'st');
   att.push(`ICMS destacado nas saídas: ${R(icmsS)} de ICMS próprio e ${R(stS)} de ICMS ST.`);
 
-  const logo = $('repLogo').checked && window.LOGO_SVG ? `<div class="lg">${window.LOGO_SVG}</div>` : '';
   const hoje = new Date().toLocaleDateString('pt-BR');
   return `<div class="rp">
   <div class="hd"><div><h1>Resumo fiscal de compras e vendas</h1>
     <div class="emp">${empresas.map(esc).join(' · ')}</div>
-    <div class="meta">Período ${brDate(ini)} a ${brDate(fim)} · ${ESTS.map(e => esc(label(e)) + ' – CNPJ ' + fmtDoc(e.cnpj)).join(' · ')}</div></div>${logo}</div>
+    <div class="meta">Período ${brDate(ini)} a ${brDate(fim)} · ${ESTS.map(e => esc(label(e)) + ' – CNPJ ' + fmtDoc(e.cnpj)).join(' · ')}</div></div></div>
   <div class="lead">${lead.map(p => `<p>${p}</p>`).join('')}</div>
   <div class="nums">${nums.map(([l, v, c]) => `<div class="num ${c}"><div class="l">${l}</div><div class="v">${c === 'txt' ? v : money(v)}</div></div>`).join('')}</div>
   ${ESTS.length > 1 ? `<section><h2>Por estabelecimento (R$)</h2><table><tr><th>Estabelecimento</th><th class="n">Vendas</th><th class="n">Compras p/ revenda</th><th class="n">Devol. vendas</th><th class="n">Total saídas</th><th class="n">Total entradas</th><th class="n">Notas</th></tr>${byEst.map(r => `<tr><td>${esc(r[0])}</td>${r.slice(1, 6).map(v => `<td class="n">${money(v)}</td>`).join('')}<td class="n">${int(r[6])}</td></tr>`).join('')}</table></section>` : ''}
@@ -876,6 +871,6 @@ window.addEventListener('beforeprint', () => { if (ESTS.length) $('relatorio').i
 
 // ---------- logo opcional (arquivo logo.js, fora do repositório) ----------
 if (window.LOGO_SVG) {
-  $('logoSlot').innerHTML = window.LOGO_SVG; $('logoSlot').hidden = false; $('logoSep').hidden = false; $('repLogoLbl').hidden = false;
+  $('logoSlot').innerHTML = window.LOGO_SVG; $('logoSlot').hidden = false; $('logoSep').hidden = false;
 }
 </script>
