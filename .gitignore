@@ -1,0 +1,7 @@
+# arquivos gerados e dados de clientes
+*.xlsx
+*.txt
+*.pdf
+__pycache__/
+logo.js
+logo-valore.svg
