@@ -4,6 +4,8 @@ Ferramenta para ler arquivos **SPED Fiscal (EFD ICMS/IPI)** e mostrar as compras
 
 O conteúdo do SPED é processado **só no computador de quem usa**. Nada é enviado para servidores.
 
+**Abrir online:** https://thiagonascimento-cloud.github.io/painel-sped-fiscal/
+
 ## Formas de usar
 
 ### 1. Página (`Painel SPED.html`)
