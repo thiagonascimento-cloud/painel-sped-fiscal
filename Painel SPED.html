@@ -163,6 +163,7 @@
       <button data-t="painel" class="on">Painel</button>
       <button data-t="det">Detalhado</button>
       <button data-t="mov">Movimento Diário</button>
+      <button data-t="est" id="tabEst">Estoque</button>
       <button data-t="cfop">Tabela CFOP</button>
     </div>
 
@@ -204,6 +205,21 @@
       </div>
       <div class="muted" id="movInfo" style="margin-bottom:6px"></div>
       <div class="scroll" id="movTable"></div>
+    </section>
+
+    <section class="tabpane" id="t-est">
+      <div id="estResumo"></div>
+      <div id="estLista">
+        <div class="filters">
+          <label>Busca (código, descrição, NCM)<input id="eq" size="30"></label>
+          <label>Estabelecimento<select id="efil"></select></label>
+          <label>Posse<select id="eposse"></select></label>
+          <button id="eclr">Limpar filtros</button>
+        </div>
+        <div class="muted" id="estInfo" style="margin-bottom:6px"></div>
+        <div class="scroll" id="estTable"></div>
+      </div>
+      <div id="estK"></div>
     </section>
 
     <section class="tabpane" id="t-cfop">
@@ -432,7 +448,7 @@ function render() {
   const opts = '<option value="all">Todas</option>' + ESTS.map(e => `<option value="${esc(e.key)}">${esc(label(e))}</option>`).join('');
   for (const id of ['fil', 'ffil']) { const v = $(id).value; $(id).innerHTML = opts; if ([...$(id).options].some(o => o.value === v)) $(id).value = v; }
   window.ROWS = allRows();
-  renderPainel(); renderDet(); renderMovFilters(); renderMov(); renderCfop();
+  renderPainel(); renderDet(); renderMovFilters(); renderMov(); renderEstoque(); renderCfop();
 }
 const selRows = () => { const s = $('fil').value; return s === 'all' ? ROWS : ROWS.filter(r => r.est === s); };
 
@@ -537,6 +553,54 @@ function renderMov() {
   $('movTable').innerHTML = h;
   document.querySelectorAll('#movTable th.sort').forEach(th => th.onclick = () => { const k = th.dataset.k; SORT = { k, dir: SORT.k === k ? -SORT.dir : 1 }; renderMov(); });
 }
+// ---------- aba Estoque ----------
+let ESORT = { k: 'vl', dir: -1 };
+function renderEstoque() {
+  const inv = estoqueInfo();
+  $('tabEst').textContent = inv.tem ? 'Estoque ●' : 'Estoque';
+  if (!inv.inv.length) {
+    $('estResumo').innerHTML = `<div class="card" style="text-align:center;padding:36px 16px"><p style="font:600 16px/1.4 var(--serif);color:var(--accent);margin:0 0 6px">Estoque não informado nos SPEDs carregados</p><p class="muted" style="margin:0;font-size:13px">${esc(NAO_INV)} Para ver o estoque, carregue o SPED de fevereiro.</p></div>`;
+    $('estLista').hidden = true;
+  } else {
+    const cards = inv.inv.map(x => `<div class="kpi ${nz0(x.vl) ? 'g' : ''}"><div class="l">${esc(x.est)} · ${brDate(x.dt)}</div><div class="v">${nz0(x.vl) ? 'R$ ' + money(x.vl) : 'Zerado'}</div><div class="muted" style="margin-top:2px">${esc(x.mot)} · ${x.n ? int(x.n) + ' itens' : 'sem itens'}</div></div>`).join('');
+    const tot = inv.inv.length > 1 ? `<div class="kpi"><div class="l">Total do estoque</div><div class="v">R$ ${money(inv.total)}</div><div class="muted" style="margin-top:2px">${int(inv.inv.reduce((a, x) => a + x.n, 0))} itens</div></div>` : '';
+    $('estResumo').innerHTML = `<div class="kpis">${cards}${tot}</div>`;
+    const itens = inv.inv.flatMap(x => x.itens.map(it => ({ ...it, est: x.est, dt: x.dt })));
+    $('estLista').hidden = !itens.length;
+    const keep = (id, vals) => { const v = $(id).value; $(id).innerHTML = '<option value="">Todos</option>' + vals.map(x => `<option>${esc(x)}</option>`).join(''); if ([...$(id).options].some(o => o.value === v)) $(id).value = v; };
+    keep('efil', [...new Set(itens.map(x => x.est))]);
+    keep('eposse', [...new Set(itens.map(x => x.posse))]);
+    window.EST_ITENS = itens;
+    renderEstTabela();
+  }
+  // Bloco K (só quantidades)
+  if (inv.k.length) {
+    const multiK = new Set(inv.k.map(x => x.est)).size > 1;
+    $('estK').innerHTML = `<div class="card" style="margin-top:16px"><h2>Estoque escriturado – Bloco K (só quantidades)</h2><div class="tw"><table><tr>${multiK ? '<th>Estabelecimento</th>' : ''}<th>Data</th><th>Código</th><th>Descrição</th><th>Unid.</th><th class="n">Quantidade</th><th>Posse</th></tr>` +
+      inv.k.map(x => `<tr>${multiK ? `<td>${esc(x.est)}</td>` : ''}<td>${brDate(x.dt)}</td><td>${esc(x.cod)}</td><td class="wrap">${esc(x.desc)}</td><td>${esc(x.un)}</td><td class="n">${x.qtd.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td><td>${esc(x.posse)}</td></tr>`).join('') + '</table></div></div>';
+  } else $('estK').innerHTML = '';
+}
+const nz0 = v => Math.abs(v) >= 0.005;
+function renderEstTabela() {
+  const itens = window.EST_ITENS || [];
+  const q = $('eq').value.trim().toLowerCase(), fe = $('efil').value, fp = $('eposse').value;
+  let r = itens.filter(x => (!fe || x.est === fe) && (!fp || x.posse === fp) && (!q || (x.cod + ' ' + x.desc + ' ' + x.ncm).toLowerCase().includes(q)));
+  const k = ESORT.k; r = [...r].sort((a, b) => (typeof a[k] === 'number' ? a[k] - b[k] : String(a[k] ?? '').localeCompare(String(b[k] ?? ''), 'pt-BR', { numeric: true })) * ESORT.dir);
+  const totV = sum(r), totQ = r.reduce((a, x) => a + x.qtd, 0), totG = sum(itens);
+  $('estInfo').textContent = `${nI.format(r.length)} itens · quantidade ${totQ.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} · valor R$ ${money(totV)}` + (r.length !== itens.length ? ` (${(totG ? totV / totG * 100 : 0).toFixed(1).replace('.', ',')}% do estoque)` : '');
+  const multi = new Set(itens.map(x => x.est)).size > 1, temNcm = itens.some(x => x.ncm), temPart = itens.some(x => x.part);
+  const cols = [...(multi ? [['est', 'Estabelecimento']] : []), ['dt', 'Data'], ['cod', 'Código'], ['desc', 'Descrição do produto'], ...(temNcm ? [['ncm', 'NCM']] : []), ['un', 'Unid.'],
+    ['qtd', 'Quantidade', 1], ['vu', 'Valor unitário', 1], ['vl', 'Valor total', 1], ['pct', '% do total', 1], ['posse', 'Posse'], ...(temPart ? [['part', 'Participante']] : [])];
+  let h = '<table><tr>' + cols.map(c => `<th class="sort ${c[2] ? 'n' : ''}" data-k="${c[0] === 'pct' ? 'vl' : c[0]}">${c[1]}${ESORT.k === c[0] ? (ESORT.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr>';
+  for (const x of r.slice(0, 3000)) h += '<tr>' + cols.map(([c]) =>
+    c === 'dt' ? `<td>${brDate(x.dt)}</td>` : c === 'qtd' ? `<td class="n">${x.qtd.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>` :
+    c === 'vu' || c === 'vl' ? `<td class="n">${money(x[c])}</td>` : c === 'pct' ? `<td class="n">${(totG ? x.vl / totG * 100 : 0).toFixed(2).replace('.', ',')}%</td>` :
+    `<td${c === 'desc' ? ' class="wrap"' : ''}>${esc(x[c])}</td>`).join('') + '</tr>';
+  h += '<tr class="tot">' + cols.map(([c], i) => c === 'qtd' ? `<td class="n">${totQ.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>` : c === 'vl' ? `<td class="n">${money(totV)}</td>` : `<td>${i === 0 ? 'Total' : ''}</td>`).join('') + '</tr></table>';
+  $('estTable').innerHTML = h;
+  document.querySelectorAll('#estTable th.sort').forEach(th => th.onclick = () => { const kk = th.dataset.k; ESORT = { k: kk, dir: ESORT.k === kk ? -ESORT.dir : (kk === 'vl' || kk === 'qtd' || kk === 'vu' ? -1 : 1) }; renderEstTabela(); });
+}
+
 function renderCfop() {
   const used = new Set(ROWS.map(r => r.cfop).filter(Boolean));
   const q = $('cq').value.trim().toLowerCase(), qd = q.replace(/\D/g, ''), only = $('conly').checked;
@@ -794,6 +858,8 @@ function resetClear() { clearTimeout(clearArmed); clearArmed = null; const b = $
 $('btnFile').onclick = () => $('file').click();
 $('btnXlsx').onclick = exportXlsx;
 $('fil').onchange = () => { renderPainel(); renderDet(); };
+$('eq').addEventListener('input', renderEstTabela); ['efil', 'eposse'].forEach(id => $(id).addEventListener('change', renderEstTabela));
+$('eclr').onclick = () => { ['eq', 'efil', 'eposse'].forEach(id => $(id).value = ''); renderEstTabela(); };
 ['fq', 'fes', 'ffil', 'fnat', 'fcfop', 'fde', 'fate'].forEach(id => $(id).addEventListener(id === 'fq' ? 'input' : 'change', renderMov));
 $('cq').addEventListener('input', renderCfop); $('conly').addEventListener('change', renderCfop);
 $('fclr').onclick = () => { ['fq', 'fes', 'ffil', 'fnat', 'fcfop', 'fde', 'fate'].forEach(id => $(id).value = ''); renderMov(); };

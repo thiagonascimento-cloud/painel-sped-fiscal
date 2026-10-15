@@ -13,7 +13,7 @@ O conteúdo do SPED é processado **só no computador de quem usa**. Nada é env
 Abra o arquivo no navegador (Chrome ou Edge).
 
 1. Abra o `.txt` do SPED, copie tudo (Ctrl+A, Ctrl+C) e cole no campo **"Cole o SPED aqui"**. Também dá para arrastar um ou mais arquivos `.txt` para a página.
-2. Veja as abas **Painel**, **Detalhado**, **Movimento Diário** e **Tabela CFOP**.
+2. Veja as abas **Painel**, **Detalhado**, **Movimento Diário**, **Estoque** e **Tabela CFOP**.
 3. Use **Imprimir relatório** para um resumo de uma página A4, ou **Baixar Excel** para a planilha.
 
 A página precisa de internet só para as fontes e para gerar o Excel.
