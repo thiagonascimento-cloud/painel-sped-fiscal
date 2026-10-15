@@ -147,6 +147,12 @@ def cfop_info(c):
 UF = {'11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO', '21': 'MA', '22': 'PI',
       '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL', '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES',
       '33': 'RJ', '35': 'SP', '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF'}
+MOTINV = {'01': 'No final do período', '02': 'Mudança de forma de tributação da mercadoria (ICMS)',
+          '03': 'Baixa cadastral, paralisação temporária e outras situações', '04': 'Alteração de regime de pagamento',
+          '05': 'Determinação dos fiscos', '06': 'Controle de mercadorias sujeitas à substituição tributária'}
+POSSE = {'0': 'Próprio, em poder da empresa', '1': 'Próprio, em poder de terceiros', '2': 'De terceiros, em poder da empresa'}
+NAO_INV = ('O SPED deste período não traz inventário (Bloco H sem informações). '
+           'O inventário de 31/12 é informado no SPED de fevereiro do ano seguinte.')
 SIT = {'00': 'Regular', '01': 'Regular extemporâneo', '02': 'Cancelado', '03': 'Cancelado extemporâneo',
        '04': 'Denegado', '05': 'Numeração inutilizada', '06': 'Complementar', '07': 'Complementar extemporâneo',
        '08': 'Regime especial'}
@@ -183,7 +189,7 @@ def ler_texto(path):
 
 
 def parse_sped(texto, origem=''):
-    est = {'rows': [], 'itens': [], 'arquivo': origem}
+    est = {'rows': [], 'itens': [], 'inv': [], 'k200': [], 'arquivo': origem}
     part, prod, cur = {}, {}, None
 
     def item(cst, cfop, vl, bc, icms, bcst, st, ipi):
@@ -228,6 +234,19 @@ def parse_sped(texto, origem=''):
                                  'vl': num(f[7]), 'dsc': num(f[8]), 'cfop': int(f[11]) if f[11].isdigit() else None,
                                  'bc': num(f[13]), 'icms': num(f[15]), 'bcst': num(f[16]), 'st': num(f[18]),
                                  'ipi': num(f[24])})
+        elif r == 'H005':
+            est['inv'].append({'dt': dt(f[2]), 'vl': num(f[3]), 'mot': MOTINV.get(f[4], f[4]), 'itens': []})
+        elif r == 'H010' and est['inv']:
+            p = prod.get(f[2], {})
+            est['inv'][-1]['itens'].append({'cod': f[2], 'desc': p.get('desc') or '(produto sem cadastro no 0200)',
+                                            'ncm': p.get('ncm', ''), 'un': f[3] or p.get('un', ''), 'qtd': num(f[4]),
+                                            'vu': num(f[5]), 'vl': num(f[6]), 'posse': POSSE.get(f[7], f[7]),
+                                            'part': part.get(f[8], {}).get('nome', ''), 'compl': f[9]})
+        elif r == 'K200':
+            p = prod.get(f[3], {})
+            est['k200'].append({'dt': dt(f[2]), 'cod': f[3], 'desc': p.get('desc') or '(produto sem cadastro no 0200)',
+                                'un': p.get('un', ''), 'qtd': num(f[4]), 'posse': POSSE.get(f[5], f[5]),
+                                'part': part.get(f[6], {}).get('nome', '')})
         elif r == 'C100':
             hdr(f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10], f[11], f[12], 'C100')
         elif r == 'C190':
@@ -364,8 +383,14 @@ def gerar(ests, saida):
     wsR.title = 'Resumo'
     wsN = wb.create_sheet('Notas fiscais')
     wsP = wb.create_sheet('Produtos')
+    inv = [{**h, 'est': e['label']} for e in ests for h in e['inv']]
+    k200 = [{**k, 'est': e['label']} for e in ests for k in e['k200']]
+    inv_itens = [{**it, 'est': h['est'], 'dt': h['dt']} for h in inv for it in h['itens']]
+    wsE = wb.create_sheet('Estoque') if (inv_itens or k200) else None
     wsC = wb.create_sheet('Clientes e fornecedores')
-    for ws in (wsR, wsN, wsP, wsC):
+    for ws in (wsR, wsN, wsP, wsE, wsC):
+        if ws is None:
+            continue
         ws.sheet_view.showGridLines = False
 
     # ---- Notas fiscais (uma linha por nota x CFOP; sem as notas zeradas)
@@ -434,6 +459,45 @@ def gerar(ests, saida):
         wsP.freeze_panes = 'A5'
     else:
         wsP['A4'] = 'Nenhum item de nota (C170) foi informado nos SPEDs carregados.'
+
+    # ---- Estoque (inventário H010 ou, na falta dele, Bloco K)
+    if wsE is not None:
+        multi_inv = len({x['est'] for x in inv_itens + k200}) > 1
+        if inv_itens:
+            wsE['A1'] = 'Estoque – inventário informado no SPED (Bloco H, registros H005/H010)'
+            wsE['A2'] = 'Valores declarados pela empresa no SPED na data do inventário.'
+            inteiro = all(float(i['qtd']).is_integer() for i in inv_itens)
+            cE = [
+                *([{'k': 'est', 't': 'Estabelecimento', 'w': 18, 'f': lambda r: r['est']}] if multi_inv else []),
+                {'k': 'dt', 't': 'Data do inventário', 'w': 12, 'f': lambda r: r['dt'], 'date': 1},
+                {'k': 'cod', 't': 'Código', 'w': 14, 'f': lambda r: r['cod']},
+                {'k': 'desc', 't': 'Descrição do produto', 'w': 56, 'f': lambda r: r['desc']},
+                *([{'k': 'ncm', 't': 'NCM', 'w': 10, 'f': lambda r: r['ncm']}] if any(i['ncm'] for i in inv_itens) else []),
+                {'k': 'un', 't': 'Unidade', 'w': 8, 'f': lambda r: r['un']},
+                {'k': 'qtd', 't': 'Quantidade', 'w': 11, 'f': lambda r: r['qtd'], 'num': 1, 'z': '#,##0' if inteiro else '#,##0.000'},
+                {'k': 'vu', 't': 'Valor unitário (R$)', 'w': 15, 'f': lambda r: r['vu'], 'num': 1, 'tot': False},
+                {'k': 'vl', 't': 'Valor total (R$)', 'w': 15, 'f': lambda r: r['vl'], 'num': 1},
+                {'k': 'posse', 't': 'Posse', 'w': 28, 'f': lambda r: r['posse']},
+                *([{'k': 'part', 't': 'Participante', 'w': 34, 'f': lambda r: r['part']}] if any(i['part'] for i in inv_itens) else []),
+                *([{'k': 'compl', 't': 'Complemento', 'w': 30, 'f': lambda r: r['compl']}] if any(i['compl'] for i in inv_itens) else []),
+            ]
+            tabela(wsE, 4, cE, inv_itens)
+        else:
+            wsE['A1'] = 'Estoque escriturado – Bloco K (registro K200)'
+            wsE['A2'] = 'O Bloco K informa apenas quantidades; o SPED não traz o valor desse estoque.'
+            cK = [
+                *([{'k': 'est', 't': 'Estabelecimento', 'w': 18, 'f': lambda r: r['est']}] if multi_inv else []),
+                {'k': 'dt', 't': 'Data', 'w': 12, 'f': lambda r: r['dt'], 'date': 1},
+                {'k': 'cod', 't': 'Código', 'w': 14, 'f': lambda r: r['cod']},
+                {'k': 'desc', 't': 'Descrição do produto', 'w': 56, 'f': lambda r: r['desc']},
+                {'k': 'un', 't': 'Unidade', 'w': 8, 'f': lambda r: r['un']},
+                {'k': 'qtd', 't': 'Quantidade', 'w': 12, 'f': lambda r: r['qtd'], 'num': 1, 'z': '#,##0.000'},
+                {'k': 'posse', 't': 'Posse', 'w': 28, 'f': lambda r: r['posse']},
+            ]
+            tabela(wsE, 4, cK, k200, total=False)
+        wsE['A1'].font = F_SEC
+        wsE['A2'].font = F_NOTA
+        wsE.freeze_panes = 'A5'
 
     # ---- Clientes e fornecedores (valores por fórmula sobre a aba Notas fiscais)
     grp = defaultdict(list)
@@ -596,6 +660,40 @@ def gerar(ests, saida):
             lin += 1
         lin += 1
 
+    # Estoque (inventário – Bloco H)
+    faixa(lin, 'ESTOQUE (INVENTÁRIO – BLOCO H)')
+    lin += 1
+    if inv:
+        cabecalho(lin, ['Estabelecimento', 'Data do inventário', 'Motivo do inventário', 'Situação', 'Itens', 'Valor (R$)'])
+        for k, h in enumerate(inv):
+            lin += 1
+            z = FILL_ZEBRA if k % 2 else None
+            celula(lin, 1, h['est'], fill=z)
+            celula(lin, 2, h['dt'].strftime('%d/%m/%Y') if h['dt'] else '', fill=z)
+            celula(lin, 3, h['mot'], fill=z)
+            celula(lin, 4, 'Possui estoque' if nz(h['vl']) else 'Inventário zerado', fill=z, bold=nz(h['vl']),
+                   cor=GREEN if nz(h['vl']) else '8A96A3')
+            celula(lin, 5, len(h['itens']) or None, '#,##0', fill=z)
+            celula(lin, 6, h['vl'] if nz(h['vl']) else None, MONEY, fill=z)
+        if len(inv) > 1:
+            lin += 1
+            celula(lin, 1, 'Total do estoque', bold=True, borda=B_TOT)
+            for j in (2, 3, 4):
+                celula(lin, j, None, borda=B_TOT)
+            celula(lin, 5, sum(len(h['itens']) for h in inv), '#,##0', bold=True, borda=B_TOT)
+            celula(lin, 6, sum(h['vl'] for h in inv), MONEY, bold=True, borda=B_TOT)
+    else:
+        celula(lin, 1, 'Possui estoque informado?', bold=True, fill=FILL_LBL)
+        R.merge_cells(start_row=lin, start_column=2, end_row=lin, end_column=NC)
+        celula(lin, 2, 'Não informado. ' + NAO_INV)
+        for j in range(3, NC + 1):
+            R.cell(lin, j).border = B_GRID
+        R.row_dimensions[lin].height = 30
+    if k200:
+        lin += 1
+        R.cell(lin, 1, f'Bloco K: {len(k200)} item(ns) de estoque escriturado (apenas quantidades), detalhados na aba "Estoque".').font = F_NOTA
+    lin += 2
+
     # Operações por CFOP
     cf = defaultdict(list)
     for r in notas:
@@ -621,7 +719,9 @@ def gerar(ests, saida):
     R.print_area = f'A1:F{lin}'
 
     # ---- impressão: A4 paisagem, ajustado à largura, cabeçalho com o cliente e número de página
-    for ws, titulos in ((wsR, None), (wsN, '1:1'), (wsP, '4:4'), (wsC, '1:1')):
+    for ws, titulos in ((wsR, None), (wsN, '1:1'), (wsP, '4:4'), (wsE, '4:4'), (wsC, '1:1')):
+        if ws is None:
+            continue
         ws.page_setup.orientation = 'portrait' if ws is wsR else 'landscape'
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
@@ -695,6 +795,12 @@ def main():
     en = sum(r['vl'] for r in rows if r['es'] == 'Entrada')
     fmt = lambda v: f'{v:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
     print(f'  Total saídas R$ {fmt(s)} | Total entradas R$ {fmt(en)} | {len(itens)} itens de produtos')
+    invs = [(e['label'], h) for e in ests for h in e['inv']]
+    if invs:
+        for lb, h in invs:
+            print(f"  Estoque {lb}: inventário de {h['dt']:%d/%m/%Y} = R$ {fmt(h['vl'])} ({len(h['itens'])} itens)")
+    else:
+        print('  Estoque: não informado no SPED deste período (Bloco H sem inventário).')
     for e in erros:
         print('  Ignorado:', e)
     print(f'Planilha gerada: {saida}')

@@ -255,6 +255,8 @@ function cfopInfo(c) {
   return i;
 }
 const UF = {11:'RO',12:'AC',13:'AM',14:'RR',15:'PA',16:'AP',17:'TO',21:'MA',22:'PI',23:'CE',24:'RN',25:'PB',26:'PE',27:'AL',28:'SE',29:'BA',31:'MG',32:'ES',33:'RJ',35:'SP',41:'PR',42:'SC',43:'RS',50:'MS',51:'MT',52:'GO',53:'DF'};
+const MOTINV = { '01': 'No final do período', '02': 'Mudança de forma de tributação da mercadoria (ICMS)', '03': 'Baixa cadastral, paralisação temporária e outras situações', '04': 'Alteração de regime de pagamento', '05': 'Determinação dos fiscos', '06': 'Controle de mercadorias sujeitas à substituição tributária' };
+const POSSE = { '0': 'Próprio, em poder da empresa', '1': 'Próprio, em poder de terceiros', '2': 'De terceiros, em poder da empresa' };
 const SIT = {'00':'Regular','01':'Regular extemporâneo','02':'Cancelado','03':'Cancelado extemporâneo','04':'Denegado','05':'Numeração inutilizada','06':'Complementar','07':'Complementar extemporâneo','08':'Regime especial'};
 const descOf = c => c ? cfopInfo(c).desc : '';
 const natOf  = c => c ? cfopInfo(c).nat : '';
@@ -263,7 +265,7 @@ const natOf  = c => c ? cfopInfo(c).nat : '';
 const num = s => s ? parseFloat(s.replace(',', '.')) || 0 : 0;
 const dt  = s => /^\d{8}$/.test(s || '') ? `${s.slice(4)}-${s.slice(2,4)}-${s.slice(0,2)}` : '';
 function parseSped(text) {
-  const est = { rows: [], itens: [] }, part = {}, prod = {};
+  const est = { rows: [], itens: [], inv: [], k200: [] }, part = {}, prod = {};
   let cur = null;
   const hdr = (oper, emit, cp, mod, sit, ser, nro, chv, dDoc, dES, vl, reg) => {
     const p = part[cp];
@@ -286,6 +288,9 @@ function parseSped(text) {
       case '0150': part[f[2]] = { nome: f[3], doc: f[5] || f[6] || '', uf: UF[(f[8] || '').slice(0, 2)] || '' }; break;
       case '0200': prod[f[2]] = { desc: f[3], un: f[6], ncm: f[8] }; break;
       case 'C170': if (cur) { const p = prod[f[3]] || {}; est.itens.push({ data: cur.data, es: cur.es, nro: cur.nro, ser: cur.ser, part: cur.part, doc: cur.doc, item: +f[2] || 0, cod: f[3], desc: p.desc || f[4] || '(produto sem cadastro no 0200)', compl: f[4] || '', ncm: p.ncm || '', qtd: num(f[5]), un: f[6] || p.un || '', vl: num(f[7]), dsc: num(f[8]), cst: f[10], cfop: f[11] ? parseInt(f[11], 10) : null, bc: num(f[13]), icms: num(f[15]), bcst: num(f[16]), st: num(f[18]), ipi: num(f[24]) }); } break;
+      case 'H005': est.inv.push({ dt: dt(f[2]), vl: num(f[3]), mot: MOTINV[f[4]] || f[4], itens: [] }); break;
+      case 'H010': if (est.inv.length) { const p = prod[f[2]] || {}; est.inv[est.inv.length - 1].itens.push({ cod: f[2], desc: p.desc || '(produto sem cadastro no 0200)', ncm: p.ncm || '', un: f[3] || p.un || '', qtd: num(f[4]), vu: num(f[5]), vl: num(f[6]), posse: POSSE[f[7]] || f[7], part: (part[f[8]] || {}).nome || '', compl: f[9] || '' }); } break;
+      case 'K200': { const p = prod[f[3]] || {}; est.k200.push({ dt: dt(f[2]), cod: f[3], desc: p.desc || '(produto sem cadastro no 0200)', un: p.un || '', qtd: num(f[4]), posse: POSSE[f[5]] || f[5], part: (part[f[6]] || {}).nome || '' }); } break;
       case 'C100': hdr(f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10], f[11], f[12], 'C100'); break;
       case 'C190': item(f[2], f[3], f[5], f[6], f[7], f[8], f[9], f[11]); break;
       case 'C500': hdr(f[2], f[3], f[4], f[5], f[6], f[7], f[10], '', f[11], f[12], f[13], 'C500'); break;
@@ -350,6 +355,16 @@ async function addFiles(files) {
   showMsg(errs.join(' · '), true);
   render();
 }
+
+// ---------- estoque (Bloco H) ----------
+function estoqueInfo() {
+  const inv = [];
+  for (const e of ESTS) for (const h of e.inv) inv.push({ est: label(e), dt: h.dt, vl: h.vl, mot: h.mot, n: h.itens.length, itens: h.itens });
+  const k = ESTS.flatMap(e => e.k200.map(x => ({ ...x, est: label(e) })));
+  const total = inv.reduce((a, x) => a + x.vl, 0);
+  return { inv, k, total, tem: inv.some(x => Math.abs(x.vl) >= 0.005), datas: [...new Set(inv.map(x => x.dt))].sort() };
+}
+const NAO_INV = 'O SPED deste período não traz inventário (Bloco H sem informações). O inventário de 31/12 é informado no SPED de fevereiro do ano seguinte.';
 
 // ---------- agregações ----------
 const sum = (rows, k = 'vl') => rows.reduce((s, r) => s + r[k], 0);
@@ -429,6 +444,10 @@ function renderPainel() {
   const cards = [['Vendas', get('Vendas'), 'g'], ['Compras p/ revenda', get('Compras para revenda'), 'r'], ['Devoluções de vendas', get('Devolução de vendas'), ''],
     ['Vendas líquidas', get('Vendas líquidas (vendas – devoluções)'), ''], ['NF de saída', get('Qtd NF de saída'), 'int'], ['NF de entrada', get('Qtd NF de entrada'), 'int']];
   $('kpis').innerHTML = cards.map(([l, v, c]) => `<div class="kpi ${c}"><div class="l">${l}</div><div class="v">${c === 'int' ? int(v) : 'R$ ' + money(v)}</div></div>`).join('');
+  const inv = estoqueInfo();
+  $('kpis').innerHTML += inv.inv.length
+    ? `<div class="kpi" title="${esc(inv.inv.map(x => x.est + ': ' + brDate(x.dt) + ' – R$ ' + money(x.vl)).join('\n'))}"><div class="l">Estoque (inventário ${inv.datas.map(brDate).join(', ')})</div><div class="v">${inv.tem ? 'R$ ' + money(inv.total) : 'Zerado'}</div></div>`
+    : `<div class="kpi" title="${esc(NAO_INV)}"><div class="l">Estoque (inventário)</div><div class="v" style="font-size:14px;color:var(--muted)">Não informado no SPED</div></div>`;
 
   const cols = ESTS.map(e => ({ l: label(e), k: kpiRows(ROWS.filter(r => r.est === e.key)) }));
   if (ESTS.length > 1) cols.push({ l: 'Consolidado', k: kpiRows(ROWS) });
@@ -633,6 +652,31 @@ async function exportXlsx() {
     put(lin, 0, nome, cel(z)); put(lin, 1, v, cel(z, { dir: 1 }), '#,##0'); lin++;
   }
   lin++;
+  const INV = estoqueInfo();
+  faixa('ESTOQUE (INVENTÁRIO – BLOCO H)');
+  if (INV.inv.length) {
+    cab(['Estabelecimento', 'Data do inventário', 'Motivo do inventário', 'Situação', 'Itens', 'Valor (R$)']);
+    INV.inv.forEach((x, i) => {
+      const z = i % 2 === 1;
+      put(lin, 0, x.est, cel(z)); put(lin, 1, x.dt ? brDate(x.dt) : '', cel(z)); put(lin, 2, x.mot, cel(z));
+      put(lin, 3, nz(x.vl) ? 'Possui estoque' : 'Inventário zerado', cel(z, { font: nz(x.vl) ? { bold: true, color: { rgb: '2E7D4F' } } : { color: { rgb: '8A96A3' } } }));
+      put(lin, 4, x.n || '', cel(z, { dir: 1 }), '#,##0'); put(lin, 5, nz(x.vl) ? x.vl : '', cel(z, { dir: 1 }), M); lin++;
+    });
+    if (INV.inv.length > 1) {
+      const st = { font: font({ bold: true }), border: TOTB, alignment: { vertical: 'center', indent: 1 } };
+      put(lin, 0, 'Total do estoque', st); for (let c = 1; c <= 3; c++) put(lin, c, '', st);
+      put(lin, 4, INV.inv.reduce((a, x) => a + x.n, 0), { ...st, alignment: { horizontal: 'right', vertical: 'center' } }, '#,##0');
+      put(lin, 5, INV.total, { ...st, alignment: { horizontal: 'right', vertical: 'center' } }, M); lin++;
+    }
+  } else {
+    put(lin, 0, 'Possui estoque informado?', { ...cel(false, { font: { bold: true } }), fill: { fgColor: { rgb: LBL } } });
+    for (let c = 1; c <= 5; c++) put(lin, c, c === 1 ? 'Não informado. ' + NAO_INV : '', cel(false));
+    merges.push({ s: { r: lin, c: 1 }, e: { r: lin, c: 5 } }); alturas[lin] = { hpt: 30 }; lin++;
+  }
+  if (INV.k.length) {
+    put(lin, 0, `Bloco K: ${int(INV.k.length)} item(ns) de estoque escriturado (apenas quantidades), detalhados na aba "Estoque".`, { font: font({ italic: true, sz: 9, color: { rgb: '595959' } }) }); lin++;
+  }
+  lin++;
   const cf = [...by(ROWS.filter(r => r.cfop), r => r.es + '|' + r.cfop)].map(([x, g]) => ({ es: g[0].es, c: g[0].cfop, d: g[0].desc, n: g[0].nat, q: g.filter(r => r.first).length, v: sum(g) })).filter(x => nz(x.v)).sort((a, b) => a.es.localeCompare(b.es) || b.v - a.v);
   faixa('OPERAÇÕES POR CFOP');
   cab(['Entrada/Saída', 'CFOP', 'Descrição da operação', 'Natureza', 'Notas', 'Valor (R$)']);
@@ -688,7 +732,36 @@ async function exportXlsx() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...aviso, ['Nenhum item de nota (C170) foi informado nos SPEDs carregados.']]), 'Produtos');
   }
 
-  // 4) Clientes e fornecedores
+  // 4) Estoque (itens do inventário – H010; e Bloco K, se houver)
+  const invItens = INV.inv.flatMap(x => x.itens.map(it => ({ ...it, est: x.est, dt: x.dt })));
+  if (invItens.length || INV.k.length) {
+    const multiInv = new Set(invItens.map(x => x.est).concat(INV.k.map(x => x.est))).size > 1;
+    if (invItens.length) {
+      const cE = [
+        ...(multiInv ? [{ t: 'Estabelecimento', w: 18, f: r => r.est }] : []),
+        { t: 'Data do inventário', w: 12, f: r => serial(r.dt), date: 1 }, { t: 'Código', w: 14, f: r => r.cod }, { t: 'Descrição do produto', w: 56, f: r => r.desc },
+        ...(invItens.some(r => r.ncm) ? [{ t: 'NCM', w: 10, f: r => r.ncm }] : []),
+        { t: 'Unidade', w: 8, f: r => r.un },
+        { t: 'Quantidade', w: 11, f: r => r.qtd, num: 1, z: invItens.every(r => Number.isInteger(r.qtd)) ? '#,##0' : '#,##0.000' },
+        { t: 'Valor unitário (R$)', w: 15, f: r => r.vu, num: 1, tot: false }, { t: 'Valor total (R$)', w: 15, f: r => r.vl, num: 1 },
+        { t: 'Posse', w: 28, f: r => r.posse },
+        ...(invItens.some(r => r.part) ? [{ t: 'Participante', w: 34, f: r => r.part }] : []),
+        ...(invItens.some(r => r.compl) ? [{ t: 'Complemento', w: 30, f: r => r.compl }] : [])
+      ];
+      const topoE = [['Estoque – inventário informado no SPED (Bloco H, registros H005/H010)'], ['Valores declarados pela empresa no SPED na data do inventário.'], []];
+      XLSX.utils.book_append_sheet(wb, tabela(cE, invItens, { topo: topoE, total: true }), 'Estoque');
+    } else {
+      const cK = [
+        ...(multiInv ? [{ t: 'Estabelecimento', w: 18, f: r => r.est }] : []),
+        { t: 'Data', w: 12, f: r => serial(r.dt), date: 1 }, { t: 'Código', w: 14, f: r => r.cod }, { t: 'Descrição do produto', w: 56, f: r => r.desc },
+        { t: 'Unidade', w: 8, f: r => r.un }, { t: 'Quantidade', w: 12, f: r => r.qtd, num: 1, z: '#,##0.000' }, { t: 'Posse', w: 28, f: r => r.posse }
+      ];
+      const topoK = [['Estoque escriturado – Bloco K (registro K200)'], ['O Bloco K informa apenas quantidades; o SPED não traz o valor desse estoque.'], []];
+      XLSX.utils.book_append_sheet(wb, tabela(cK, INV.k, { topo: topoK, total: false }), 'Estoque');
+    }
+  }
+
+  // 5) Clientes e fornecedores
   const parts = [...by(ROWS.filter(r => nz(r.vl)), r => r.es + '|' + r.part + '|' + r.doc)].map(([x, g]) => ({ es: g[0].es, part: g[0].part, doc: g[0].doc, uf: g[0].uf, q: g.filter(r => r.first).length, v: sum(g), vv: sum(g.filter(r => r.nat === 'Venda')), cc: sum(g.filter(r => r.nat === 'Compra para revenda')) }))
     .sort((a, b) => a.es.localeCompare(b.es) || b.v - a.v);
   const cC = [
@@ -827,6 +900,8 @@ function reportHtml() {
   if (autoC.length) att.push(`CFOPs classificados automaticamente pela tabela oficial, a conferir: ${autoC.sort((a, b) => a - b).map(c => c + ' (' + esc(cfopInfo(c).nat) + ')').join(', ')}.`);
   const ovr = [...new Set(rows.map(r => r.cfop).filter(c => c && cfopInfo(c).origem === 'ajustada por você'))];
   if (ovr.length) att.push(`Natureza ajustada manualmente: ${ovr.map(c => c + ' → ' + esc(cfopInfo(c).nat)).join(', ')}.`);
+  { const inv = estoqueInfo();
+    att.push(inv.inv.length ? (inv.tem ? `Estoque (inventário do Bloco H em ${inv.datas.map(brDate).join(', ')}): <b>${R(inv.total)}</b> em ${int(inv.inv.reduce((a, x) => a + x.n, 0))} itens.` : `Inventário do Bloco H informado com valor zerado (${inv.datas.map(brDate).join(', ')}).`) : NAO_INV); }
   if (remS || remE) att.push(`Remessas e retornos (não entram em vendas ou compras): saíram ${R(remS)} e entraram ${R(remE)}.`);
   const icmsS = sum(rows.filter(r => r.es === 'Saída'), 'icms'), stS = sum(rows.filter(r => r.es === 'Saída'), 'st');
   att.push(`ICMS destacado nas saídas: ${R(icmsS)} de ICMS próprio e ${R(stS)} de ICMS ST.`);

@@ -38,7 +38,10 @@ python sped_painel.py "caminho/da/pasta" -o "saida.xlsx"
 | **Resumo** | Dados da empresa e valores consolidados; aparece só o que tem valor |
 | **Notas fiscais** | Uma linha por nota x CFOP, com cliente/fornecedor, CFOP, natureza, valores e chave de acesso |
 | **Produtos** | Itens das notas (registro C170): código, descrição, NCM, quantidade e valores |
+| **Estoque** | Itens do inventário (Bloco H): código, descrição, quantidade, valor unitário e total. Só aparece quando o SPED traz inventário |
 | **Clientes e fornecedores** | Totais por participante |
+
+O **Resumo** informa se a empresa possui estoque e qual o valor, pelo inventário do Bloco H (registro H005). O inventário de 31/12 é entregue no SPED de **fevereiro** do ano seguinte; nos demais meses o Resumo indica "Não informado". Quando há apenas o Bloco K (indústria), a aba Estoque traz as quantidades, sem valor.
 
 Colunas e linhas sem valor não são geradas, e os zeros ficam em branco.
 
@@ -46,7 +49,7 @@ Colunas e linhas sem valor não são geradas, e os zeros ficam em branco.
 
 ## Registros lidos
 
-`0000` (empresa e período), `0150` (participantes), `0200` (produtos), `C100/C170/C190` (NF-e/NFC-e), `C500/C590` (energia), `D100/D190` (CT-e) e `D500/D590` (comunicação).
+`0000` (empresa e período), `0150` (participantes), `0200` (produtos), `H005/H010` (inventário), `K200` (estoque escriturado), `C100/C170/C190` (NF-e/NFC-e), `C500/C590` (energia), `D100/D190` (CT-e) e `D500/D590` (comunicação).
 
 ## Tabela de CFOP
 
