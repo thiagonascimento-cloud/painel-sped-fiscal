@@ -1,0 +1,16 @@
+{
+  "name": "Painel SPED Fiscal",
+  "short_name": "Painel SPED",
+  "description": "Compras, vendas, CFOPs e estoque a partir do SPED Fiscal (EFD ICMS/IPI).",
+  "lang": "pt-BR",
+  "start_url": "./Painel%20SPED.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F3F5F7",
+  "theme_color": "#1F3A4D",
+  "icons": [
+    { "src": "icones/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icones/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icones/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
